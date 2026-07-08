@@ -15,11 +15,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pinned to a commit rather than the 0.76.0 tag: the FFI surface changed
+      # right after the tag (vx_view parameters, error API) and the binding
+      # targets the newer ABI. Re-pin to the next tagged release.
       - name: Checkout vortex (pinned)
         uses: actions/checkout@v4
         with:
           repository: spiraldb/vortex
-          ref: 0.76.0
+          ref: b9779d641af0fd9a3646f2b4b15f2220431d5cca
           path: vortex
 
       - uses: Swatinem/rust-cache@v2

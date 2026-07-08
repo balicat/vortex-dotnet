@@ -38,15 +38,17 @@ var batches = file.ReadSeries(
 ```
 
 Against a 45 MB file holding 81,422 series and 10.3 million rows, one series with ten years of
-history returns in about 8 ms, and a five-series pull in under 10 ms. Period bounds are applied
-after decode — the current FFI cannot express a date-typed literal — but the series pushdown is
-what prunes the work, so the range costs nothing measurable.
+history returns in about 8 ms, a five-series pull in under 10 ms, and an 849-series watchlist
+(the one in `testdata/pet_monthly_series.txt`) in 65 ms. Period bounds are applied after
+decode — the current FFI cannot express a date-typed literal — but the series pushdown is what
+prunes the work, so the range costs nothing measurable.
 
 ## Status
 
-Early but real: it reads production files and the values check out. The binding is pinned against
-vortex 0.76.x — the format is pre-1.0, so treat any version bump as a re-verification of the FFI
-signatures. The scope is deliberately narrow: open a file, read the schema, scan everything to
+Early but real: it reads production files and the values check out. The binding is pinned to a
+vortex commit just past the 0.76.0 tag — the FFI surface changed right after that release, and
+the binding targets the newer shape. The format is pre-1.0, so treat any version bump as a
+re-verification of the FFI signatures. The scope is deliberately narrow: open a file, read the schema, scan everything to
 Arrow. The FFI also exposes column projection and predicate pushdown through the same scan
 surface, so those can come later without redesign.
 
