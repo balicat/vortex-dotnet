@@ -35,6 +35,25 @@ explicitly with the `VORTEX_FFI_PATH` environment variable. Build it from a vort
 cargo build --release -p vortex-ffi
 ```
 
+## Benchmark
+
+Full-file read to Arrow record batches, median of five warm runs on a Ryzen 7 7840HS.
+The comparison is this reader (vortex-ffi 0.76 through the C Data Interface) against
+Parquet.Net 5.6.1 reading a Parquet twin written from the same data.
+
+| Dataset | Rows | Vortex size | Parquet size | Vortex read | Parquet.Net read |
+|---|---|---|---|---|---|
+| PET.RWTC.D 2024 | 252 | 7 KB | 3 KB | 0.5 ms | 0.5 ms |
+| ELEC slice, 38,370 series | 2,969,849 | 16.3 MB | 9.3 MB | **36 ms** | 201 ms |
+
+That is roughly 82 million rows per second through the binding. Parquet compresses this
+particular dataset smaller because its period column is raw strings, which is also part of
+what makes the file a good decoder test. Reproduce with:
+
+```sh
+dotnet run --project examples/Bench -c Release
+```
+
 ## Tests
 
 The test suite compares Vortex files against Parquet twins written from the same data. The
