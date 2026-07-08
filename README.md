@@ -43,12 +43,16 @@ Parquet.Net 5.6.1 reading a Parquet twin written from the same data.
 
 | Dataset | Rows | Vortex size | Parquet size | Vortex read | Parquet.Net read |
 |---|---|---|---|---|---|
-| PET.RWTC.D 2024 | 252 | 7 KB | 3 KB | 0.5 ms | 0.5 ms |
-| ELEC slice, 38,370 series | 2,969,849 | 16.3 MB | 9.3 MB | **36 ms** | 201 ms |
+| PET.RWTC.D 2024 | 252 | 7 KB | 3 KB | 0.5 ms | 0.2 ms |
+| ELEC slice, period as string | 2,969,849 | 16.3 MB | 9.3 MB | **39 ms** | 182 ms |
+| ELEC slice, period as date32 | 2,969,849 | 18.2 MB | 9.3 MB | **38 ms** | 146 ms |
 
-That is roughly 82 million rows per second through the binding. Parquet compresses this
-particular dataset smaller because its period column is raw strings, which is also part of
-what makes the file a good decoder test. Reproduce with:
+That is roughly 76 million rows per second through the binding. Retyping the period column
+as date32 barely moves Vortex here: with only 432 distinct periods across three million rows
+the string column dictionary-encodes almost to nothing, so there was little left to win.
+Parquet.Net does speed up on dates since it no longer materializes three million strings.
+Both ELEC files decode through thirteen distinct encodings, which is what makes them good
+reader tests. Reproduce with:
 
 ```sh
 dotnet run --project examples/Bench -c Release

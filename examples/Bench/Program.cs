@@ -7,7 +7,11 @@ using Vortex;
 // the Vortex FFI path against Parquet.Net on the twin file.
 
 string root = FindTestData();
-var datasets = new[] { "pet_rwtc_2024", "elec_slice" };
+string[] datasets = Directory.GetFiles(root, "*.vortex")
+    .Select(Path.GetFileNameWithoutExtension)
+    .Where(n => File.Exists(Path.Combine(root, $"{n}.parquet")))
+    .Order()
+    .ToArray()!;
 const int iterations = 5;
 
 foreach (string name in datasets)
