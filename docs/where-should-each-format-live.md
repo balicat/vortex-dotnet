@@ -53,7 +53,7 @@ For scale I ran the same queries through my Arrow Flight server, warm and batche
 The local file ties the LAN server on the big pull, wins 3× on a single series, and needs
 no server at all.
 
-Every Excel user reads directly from the same file. No database process. No API. No server
+Every Excel user reads the same file directly. No database process. No API. No server
 restart. Just random-access reads.
 
 Move the same file to S3 and the advantage largely disappears because every seek becomes an
