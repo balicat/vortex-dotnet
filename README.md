@@ -43,6 +43,11 @@ history returns in about 8 ms, a five-series pull in under 10 ms, and an 849-ser
 decode — the current FFI cannot express a date-typed literal — but the series pushdown is what
 prunes the work, so the range costs nothing measurable.
 
+The same watchlist through Parquet.Net on a Parquet twin of that file takes about 930 ms, and
+even a single series costs 180 ms, because managed .NET has no Parquet engine with predicate
+pushdown — every query decodes all ten million rows. The point of binding the FFI is that it
+brings .NET an engine, not just a format.
+
 ## Status
 
 Early but real: it reads production files and the values check out. The binding is pinned to a
