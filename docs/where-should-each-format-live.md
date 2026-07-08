@@ -6,16 +6,12 @@
 
 That's the opening line of the Vortex README.
 
-I wanted to see how close it gets.
-
-I wrote a .NET reader to then make an XLL for Excel, and compared it with Parquet using the
-U.S. EIA Petroleum (PET) dataset — 10.3 million rows, 81,422 monthly series, 1920 through 2026.
+I wrote a .NET reader so Excel could read Vortex files through an XLL, and compared it with
+Parquet using the U.S. EIA Petroleum (PET) dataset — 10.3 million rows, 81,422 monthly series, 1920 through 2026.
 
 I also added QlikView's QVD format. I reverse engineered that one a while back and wrote a
 .NET [reader and writer](https://github.com/balicat/qvd-dotnet) for it, so all three formats
 go through my own code.
-
-For local analytical workloads, the random-access performance is impressive.
 
 | Workload                    |    Vortex |     QVD |     Parquet |
 | --------------------------- | --------: | ------: | ----------: |
@@ -35,16 +31,16 @@ Parquet is designed to scan.
 
 Vortex is designed to seek.
 
-QVD, twenty years older than both, sits in between. Its symbol tables were dictionary
-encoding before the word was fashionable, and one series costs the same as 849 — the scan
-is cheap, but there is no way to skip.
+QVD, despite being two decades older, sits between the two. Its symbol tables make scans
+cheap, but there is no way to skip — one series costs the same as 849.
 
 Without pushdown, Parquet's one-series query costs more than its own full scan. Every
 question costs the whole file.
 
 ## The file as the data service
 
-If your workload is "give me these 849 time series", the file can become the data service.
+If your workload is "give me these 849 time series", a Vortex file on a LAN share can
+become the data service.
 
 For scale I ran the same queries through my Arrow Flight server, warm and batched:
 
@@ -57,8 +53,8 @@ For scale I ran the same queries through my Arrow Flight server, warm and batche
 The local file ties the LAN server on the big pull, wins 3× on a single series, and needs
 no server at all.
 
-Put it on a LAN share and every Excel user is reading directly from the same file. No
-database process. No API. No server restart. Just random-access reads.
+Every Excel user reads directly from the same file. No database process. No API. No server
+restart. Just random-access reads.
 
 Move the same file to S3 and the advantage largely disappears because every seek becomes an
 HTTP request. That's where Parquet belongs.
@@ -71,7 +67,7 @@ I think it's "Where should each format live?"
 
 Parquet is an excellent storage format.
 
-Vortex is the first columnar format I've used that makes a convincing serving format.
+Vortex is the first columnar format I've used that makes a file feel like a database.
 
 ---
 
