@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout vortex (pinned)
+        uses: actions/checkout@v4
+        with:
+          repository: spiraldb/vortex
+          ref: 0.76.0
+          path: vortex
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: vortex
+
+      - name: Build vortex-ffi
+        working-directory: vortex
+        run: cargo build --release -p vortex-ffi
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Test
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            export VORTEX_FFI_PATH="$GITHUB_WORKSPACE/vortex/target/release/vortex_ffi.dll"
+          else
+            export VORTEX_FFI_PATH="$GITHUB_WORKSPACE/vortex/target/release/libvortex_ffi.so"
+          fi
+          dotnet test -c Release
