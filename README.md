@@ -44,6 +44,7 @@ Parquet.Net 5.6.1 reading a Parquet twin written from the same data.
 | Dataset | Rows | Vortex size | Parquet size | Vortex read | Parquet.Net read |
 |---|---|---|---|---|---|
 | PET.RWTC.D 2024 | 252 | 7 KB | 3 KB | 0.5 ms | 0.2 ms |
+| PET monthly workload, 849 series, 10 years | 65,026 | 320 KB | 143 KB | **1.3 ms** | 3.5 ms |
 | ELEC slice, period as string | 2,969,849 | 16.3 MB | 9.3 MB | **39 ms** | 182 ms |
 | ELEC slice, period as date32 | 2,969,849 | 18.2 MB | 9.3 MB | **38 ms** | 146 ms |
 

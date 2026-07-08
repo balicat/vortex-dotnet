@@ -41,25 +41,18 @@ public class ReadTests
         Assert.Equal(new[] { "series_id", "period", "value" }, schema.FieldsList.Select(f => f.Name));
     }
 
-    [SkippableFact]
-    public void SmallFile_MatchesParquetTwin()
+    [SkippableTheory]
+    [InlineData("pet_rwtc_2024", 252)]
+    [InlineData("pet_monthly_10y", 65_026)]
+    [InlineData("elec_slice", 2_969_849)]
+    [InlineData("elec_slice_date", 2_969_849)]
+    public void VortexFile_MatchesParquetTwin(string name, int expectedRows)
     {
         RequireNative();
-        var vortexRows = ReadVortexRows(TestData("pet_rwtc_2024.vortex"));
-        var parquetRows = ReadParquetRows(TestData("pet_rwtc_2024.parquet")).GetAwaiter().GetResult();
+        var vortexRows = ReadVortexRows(TestData($"{name}.vortex"));
+        var parquetRows = ReadParquetRows(TestData($"{name}.parquet")).GetAwaiter().GetResult();
 
-        Assert.Equal(252, parquetRows.Count);
-        AssertRowsEqual(parquetRows, vortexRows);
-    }
-
-    [SkippableFact]
-    public void NastyElecFile_MatchesParquetTwin()
-    {
-        RequireNative();
-        var vortexRows = ReadVortexRows(TestData("elec_slice.vortex"));
-        var parquetRows = ReadParquetRows(TestData("elec_slice.parquet")).GetAwaiter().GetResult();
-
-        Assert.Equal(2_969_849, parquetRows.Count);
+        Assert.Equal(expectedRows, parquetRows.Count);
         AssertRowsEqual(parquetRows, vortexRows);
     }
 
