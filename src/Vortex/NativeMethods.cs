@@ -130,6 +130,51 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(LibName)]
     internal static partial int vx_dtype_to_arrow_schema(IntPtr dtype, CArrowSchema* schema, IntPtr* err);
 
+    // --- expressions (scan predicates) ---
+
+    [LibraryImport(LibName)]
+    internal static partial IntPtr vx_expression_root();
+
+    /// <remarks>"item" is copied. Returns null if child is null or item is not valid UTF-8.</remarks>
+    [LibraryImport(LibName)]
+    internal static partial IntPtr vx_expression_get_item(VxView item, IntPtr child);
+
+    [LibraryImport(LibName)]
+    internal static partial IntPtr vx_expression_literal(IntPtr scalar, IntPtr* err);
+
+    /// <remarks>op: 0=EQ 1=NOT_EQ 2=GT 3=GTE 4=LT 5=LTE.</remarks>
+    [LibraryImport(LibName)]
+    internal static partial IntPtr vx_expression_binary(int op, IntPtr lhs, IntPtr rhs);
+
+    [LibraryImport(LibName)]
+    internal static partial IntPtr vx_expression_and(IntPtr* expressions, nuint len);
+
+    /// <remarks>Boolean expression: does "list" contain "value".</remarks>
+    [LibraryImport(LibName)]
+    internal static partial IntPtr vx_expression_list_contains(IntPtr list, IntPtr value);
+
+    [LibraryImport(LibName)]
+    internal static partial void vx_expression_free(IntPtr expression);
+
+    // --- scalars (expression literals) ---
+
+    /// <remarks>Bytes are copied.</remarks>
+    [LibraryImport(LibName)]
+    internal static partial IntPtr vx_scalar_new_utf8(VxView value, [MarshalAs(UnmanagedType.U1)] bool isNullable, IntPtr* err);
+
+    [LibraryImport(LibName)]
+    internal static partial IntPtr vx_scalar_new_i32(int value, [MarshalAs(UnmanagedType.U1)] bool isNullable);
+
+    /// <remarks>"elementDtype" and "elements" are not consumed.</remarks>
+    [LibraryImport(LibName)]
+    internal static partial IntPtr vx_scalar_new_list(IntPtr elementDtype, IntPtr* elements, nuint len, [MarshalAs(UnmanagedType.U1)] bool isNullable, IntPtr* err);
+
+    [LibraryImport(LibName)]
+    internal static partial void vx_scalar_free(IntPtr scalar);
+
+    [LibraryImport(LibName)]
+    internal static partial IntPtr vx_dtype_new_utf8([MarshalAs(UnmanagedType.U1)] bool isNullable);
+
     // --- error ---
 
     [LibraryImport(LibName)]

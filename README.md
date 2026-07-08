@@ -28,6 +28,20 @@ foreach (var batch in file.ReadAll())
 `Open` also accepts glob patterns like `"*.vortex"`. `ReadAll(ordered: true)` returns rows in
 storage order.
 
+For time-series files shaped like `series_id | period | value`, point queries push the series
+predicate down into the scan so only matching chunks are decoded:
+
+```csharp
+var batches = file.ReadSeries(
+    ["PET.RWTC.D", "PET.RBRTE.D"],
+    start: new DateOnly(2016, 7, 1));
+```
+
+Against a 45 MB file holding 81,422 series and 10.3 million rows, one series with ten years of
+history returns in about 8 ms, and a five-series pull in under 10 ms. Period bounds are applied
+after decode — the current FFI cannot express a date-typed literal — but the series pushdown is
+what prunes the work, so the range costs nothing measurable.
+
 ## Status
 
 Early but real: it reads production files and the values check out. The binding is pinned against

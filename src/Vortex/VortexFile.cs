@@ -106,6 +106,269 @@ public sealed unsafe class VortexFile : IDisposable
         return EnumerateBatches(scan);
     }
 
+    /// <summary>
+    /// Reads one series, optionally restricted to a period range. The filter is
+    /// pushed down into the Vortex scan, so only matching chunks are decoded.
+    /// </summary>
+    public IEnumerable<RecordBatch> ReadSeries(
+        string seriesId, DateOnly? start = null, DateOnly? end = null,
+        string seriesColumn = "series_id", string periodColumn = "period")
+        => ReadSeries(new[] { seriesId }, start, end, seriesColumn, periodColumn);
+
+    /// <summary>
+    /// Reads a set of series, optionally restricted to a period range. The series
+    /// list is pushed down into the Vortex scan (chunk pruning), while date bounds
+    /// are applied as zero-copy slices of the returned batches — the 0.76 FFI has
+    /// no way to express a date-typed literal for an extension column yet.
+    /// </summary>
+    public IEnumerable<RecordBatch> ReadSeries(
+        IReadOnlyCollection<string> seriesIds, DateOnly? start = null, DateOnly? end = null,
+        string seriesColumn = "series_id", string periodColumn = "period")
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(seriesIds);
+        if (seriesIds.Count == 0)
+            throw new ArgumentException("at least one series id is required", nameof(seriesIds));
+
+        IntPtr scan;
+        using (var builder = new FilterBuilder())
+        {
+            IntPtr filter = builder.SeriesPredicate(seriesIds, seriesColumn);
+            VxScanOptions options = new() { Filter = filter, Ordered = 1 };
+            IntPtr err = IntPtr.Zero;
+            scan = NativeMethods.vx_data_source_scan(_dataSource, &options, IntPtr.Zero, &err);
+            if (scan == IntPtr.Zero)
+                throw VortexException.FromNative(err);
+            // The scan clones the filter, so the builder can free everything now.
+        }
+
+        IEnumerable<RecordBatch> batches = EnumerateBatches(scan);
+        return start == null && end == null
+            ? batches
+            : FilterByPeriod(batches, periodColumn, start, end);
+    }
+
+    /// <summary>
+    /// Keeps only rows whose period falls inside [start, end]. Rows are copied
+    /// into fresh managed batches: the imported batches own FFI memory, so
+    /// zero-copy slices could not outlive them safely. After the series pushdown
+    /// the surviving row counts are small, so the copy is cheap. String-view
+    /// columns are normalized to utf8 in the output.
+    /// </summary>
+    private static IEnumerable<RecordBatch> FilterByPeriod(
+        IEnumerable<RecordBatch> batches, string periodColumn, DateOnly? start, DateOnly? end)
+    {
+        foreach (RecordBatch batch in batches)
+        {
+            using (batch)
+            {
+                if (batch.Column(periodColumn) is not Date32Array periods)
+                    throw new NotSupportedException(
+                        $"period filtering requires a date32 column, but '{periodColumn}' is " +
+                        $"{batch.Column(periodColumn).GetType().Name}");
+
+                var keep = new List<int>();
+                for (int i = 0; i < batch.Length; i++)
+                {
+                    DateOnly? d = periods.GetDateOnly(i);
+                    if (d != null && (start == null || d >= start) && (end == null || d <= end))
+                        keep.Add(i);
+                }
+
+                if (keep.Count > 0)
+                    yield return CopyRows(batch, keep);
+            }
+        }
+    }
+
+    private static RecordBatch CopyRows(RecordBatch batch, List<int> rows)
+    {
+        var fields = new List<Field>();
+        var columns = new List<IArrowArray>();
+        foreach (Field field in batch.Schema.FieldsList)
+        {
+            IArrowArray copied = CopyColumn(batch.Column(field.Name), rows);
+            fields.Add(new Field(field.Name, copied.Data.DataType, field.IsNullable));
+            columns.Add(copied);
+        }
+
+        return new RecordBatch(new Schema(fields, batch.Schema.Metadata), columns, rows.Count);
+    }
+
+    private static IArrowArray CopyColumn(IArrowArray source, List<int> rows)
+    {
+        switch (source)
+        {
+            case StringArray s:
+                return CopyStrings(i => s.GetString(i), rows);
+            case StringViewArray sv:
+                return CopyStrings(i => sv.GetString(i), rows);
+            case LargeStringArray ls:
+                return CopyStrings(i => ls.GetString(i), rows);
+            case Date32Array d:
+            {
+                var b = new Date32Array.Builder();
+                foreach (int i in rows)
+                {
+                    DateOnly? v = d.GetDateOnly(i);
+                    if (v == null) b.AppendNull(); else b.Append(v.Value);
+                }
+                return b.Build();
+            }
+            case DoubleArray f64:
+            {
+                var b = new DoubleArray.Builder();
+                foreach (int i in rows)
+                {
+                    double? v = f64.GetValue(i);
+                    if (v == null) b.AppendNull(); else b.Append(v.Value);
+                }
+                return b.Build();
+            }
+            case Int64Array i64:
+            {
+                var b = new Int64Array.Builder();
+                foreach (int i in rows)
+                {
+                    long? v = i64.GetValue(i);
+                    if (v == null) b.AppendNull(); else b.Append(v.Value);
+                }
+                return b.Build();
+            }
+            case Int32Array i32:
+            {
+                var b = new Int32Array.Builder();
+                foreach (int i in rows)
+                {
+                    int? v = i32.GetValue(i);
+                    if (v == null) b.AppendNull(); else b.Append(v.Value);
+                }
+                return b.Build();
+            }
+            default:
+                throw new NotSupportedException(
+                    $"period-filtered copy does not support {source.GetType().Name} columns");
+        }
+    }
+
+    private static StringArray CopyStrings(Func<int, string?> get, List<int> rows)
+    {
+        var b = new StringArray.Builder();
+        foreach (int i in rows)
+        {
+            string? v = get(i);
+            if (v == null) b.AppendNull(); else b.Append(v);
+        }
+        return b.Build();
+    }
+
+    /// <summary>
+    /// Builds vx_expression predicate trees, tracking every native handle it
+    /// creates so Dispose can free them. The scan clones the filter expression,
+    /// so handles only need to live until the scan is created.
+    /// </summary>
+    private sealed class FilterBuilder : IDisposable
+    {
+        private readonly List<IntPtr> _expressions = new();
+        private readonly List<IntPtr> _scalars = new();
+        private readonly List<IntPtr> _dtypes = new();
+
+        public IntPtr SeriesPredicate(IReadOnlyCollection<string> seriesIds, string seriesColumn)
+        {
+            IntPtr column = Column(seriesColumn);
+            if (seriesIds.Count == 1)
+                return Compare(0 /* EQ */, column, Utf8Literal(seriesIds.First()));
+
+            var elements = new List<IntPtr>();
+            foreach (string id in seriesIds)
+                elements.Add(Utf8Scalar(id));
+
+            IntPtr utf8Dtype = NativeMethods.vx_dtype_new_utf8(true);
+            _dtypes.Add(utf8Dtype);
+
+            IntPtr err = IntPtr.Zero;
+            IntPtr listScalar;
+            fixed (IntPtr* ptr = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(elements))
+            {
+                listScalar = NativeMethods.vx_scalar_new_list(utf8Dtype, ptr, (nuint)elements.Count, false, &err);
+            }
+
+            if (listScalar == IntPtr.Zero)
+                throw VortexException.FromNative(err);
+            _scalars.Add(listScalar);
+
+            IntPtr listLiteral = NativeMethods.vx_expression_literal(listScalar, &err);
+            if (listLiteral == IntPtr.Zero)
+                throw VortexException.FromNative(err);
+            _expressions.Add(listLiteral);
+
+            IntPtr contains = NativeMethods.vx_expression_list_contains(listLiteral, column);
+            return TrackExpression(contains, "failed to build list-contains expression");
+        }
+
+        private IntPtr Column(string name)
+        {
+            IntPtr root = TrackExpression(NativeMethods.vx_expression_root(), "failed to create root expression");
+            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(name);
+            fixed (byte* p = bytes)
+            {
+                VxView view = new() { Ptr = p, Len = (nuint)bytes.Length };
+                return TrackExpression(NativeMethods.vx_expression_get_item(view, root),
+                    $"failed to reference column '{name}'");
+            }
+        }
+
+        private IntPtr Compare(int op, IntPtr lhs, IntPtr rhs)
+            => TrackExpression(NativeMethods.vx_expression_binary(op, lhs, rhs), "failed to build comparison");
+
+        private IntPtr Utf8Literal(string value) => Literal(Utf8Scalar(value));
+
+        private IntPtr Utf8Scalar(string value)
+        {
+            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(value);
+            IntPtr err = IntPtr.Zero;
+            IntPtr scalar;
+            fixed (byte* p = bytes)
+            {
+                VxView view = new() { Ptr = p, Len = (nuint)bytes.Length };
+                scalar = NativeMethods.vx_scalar_new_utf8(view, false, &err);
+            }
+
+            if (scalar == IntPtr.Zero)
+                throw VortexException.FromNative(err);
+            _scalars.Add(scalar);
+            return scalar;
+        }
+
+        private IntPtr Literal(IntPtr scalar)
+        {
+            IntPtr err = IntPtr.Zero;
+            IntPtr literal = NativeMethods.vx_expression_literal(scalar, &err);
+            if (literal == IntPtr.Zero)
+                throw VortexException.FromNative(err);
+            _expressions.Add(literal);
+            return literal;
+        }
+
+        private IntPtr TrackExpression(IntPtr expression, string errorMessage)
+        {
+            if (expression == IntPtr.Zero)
+                throw new VortexException(errorMessage);
+            _expressions.Add(expression);
+            return expression;
+        }
+
+        public void Dispose()
+        {
+            foreach (IntPtr e in _expressions)
+                NativeMethods.vx_expression_free(e);
+            foreach (IntPtr s in _scalars)
+                NativeMethods.vx_scalar_free(s);
+            foreach (IntPtr d in _dtypes)
+                NativeMethods.vx_dtype_free(d);
+        }
+    }
+
     private IEnumerable<RecordBatch> EnumerateBatches(IntPtr scan)
     {
         try

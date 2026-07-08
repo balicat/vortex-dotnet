@@ -56,6 +56,45 @@ public class ReadTests
         AssertRowsEqual(parquetRows, vortexRows);
     }
 
+    [SkippableFact]
+    public void ReadSeries_SingleWithRange_MatchesParquetFilter()
+    {
+        RequireNative();
+        var start = new DateOnly(2020, 1, 1);
+        var end = new DateOnly(2024, 12, 31);
+
+        using var file = VortexFile.Open(TestData("pet_monthly_10y.vortex"));
+        var actual = CollectRows(file.ReadSeries("PET.MCESTUS1.M", start, end));
+
+        var expected = ReadParquetRows(TestData("pet_monthly_10y.parquet")).GetAwaiter().GetResult()
+            .Where(r => r.Item1 == "PET.MCESTUS1.M" &&
+                        string.CompareOrdinal(r.Item2, "2020-01-01") >= 0 &&
+                        string.CompareOrdinal(r.Item2, "2024-12-31") <= 0)
+            .ToList();
+
+        Assert.NotEmpty(expected);
+        AssertRowsEqual(expected, actual);
+    }
+
+    [SkippableFact]
+    public void ReadSeries_ListWithOpenEnd_MatchesParquetFilter()
+    {
+        RequireNative();
+        string[] ids = ["PET.MCESTUS1.M", "PET.MCRFPTX1.M", "PET.MDISTUS1.M"];
+        var start = new DateOnly(2022, 1, 1);
+
+        using var file = VortexFile.Open(TestData("pet_monthly_10y.vortex"));
+        var actual = CollectRows(file.ReadSeries(ids, start));
+
+        var expected = ReadParquetRows(TestData("pet_monthly_10y.parquet")).GetAwaiter().GetResult()
+            .Where(r => ids.Contains(r.Item1) && string.CompareOrdinal(r.Item2, "2022-01-01") >= 0)
+            .ToList();
+
+        Assert.NotEmpty(expected);
+        Assert.Equal(3, expected.Select(r => r.Item1).Distinct().Count());
+        AssertRowsEqual(expected, actual);
+    }
+
     private static void AssertRowsEqual(
         List<(string SeriesId, string Period, double? Value)> expected,
         List<(string SeriesId, string Period, double? Value)> actual)
@@ -81,9 +120,14 @@ public class ReadTests
 
     private static List<(string, string, double?)> ReadVortexRows(string path)
     {
-        var rows = new List<(string, string, double?)>();
         using var file = VortexFile.Open(path);
-        foreach (RecordBatch batch in file.ReadAll(ordered: true))
+        return CollectRows(file.ReadAll(ordered: true));
+    }
+
+    private static List<(string, string, double?)> CollectRows(IEnumerable<RecordBatch> batches)
+    {
+        var rows = new List<(string, string, double?)>();
+        foreach (RecordBatch batch in batches)
         {
             using (batch)
             {
