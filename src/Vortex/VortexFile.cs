@@ -27,6 +27,10 @@ public sealed unsafe class VortexFile : IDisposable
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
 
+        // The FFI converts bare paths to file:// URLs, where Windows
+        // backslashes end up percent-encoded and unusable.
+        path = Path.GetFullPath(path).Replace('\\', '/');
+
         IntPtr session = NativeMethods.vx_session_new();
         if (session == IntPtr.Zero)
             throw new VortexException("failed to create Vortex session");
