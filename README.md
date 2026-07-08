@@ -1,5 +1,7 @@
 # vortex-dotnet
 
+[![CI](https://github.com/balicat/vortex-dotnet/actions/workflows/ci.yml/badge.svg)](https://github.com/balicat/vortex-dotnet/actions/workflows/ci.yml)
+
 A read-only .NET reader for [Vortex](https://github.com/spiraldb/vortex) files. It binds the
 Vortex C FFI and hands data to .NET through the Arrow C Data Interface, so a Vortex file comes
 back as ordinary `Apache.Arrow` record batches with zero copies along the way.
@@ -83,6 +85,10 @@ partition files plus a local reader means the data layer keeps working on a plan
 site when the tunnel is down.
 
 ## Benchmark
+
+A fuller write-up — Vortex vs QVD vs Parquet on 10.3 million rows, plus the same queries
+through an Arrow Flight server over LAN and internet — is in
+[docs/where-should-each-format-live.md](docs/where-should-each-format-live.md).
 
 Full-file read to Arrow record batches, median of five warm runs on a Ryzen 7 7840HS.
 The comparison is this reader (vortex-ffi 0.76 through the C Data Interface) against
